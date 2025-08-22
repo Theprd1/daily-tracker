@@ -1,4 +1,23 @@
-# Getting Started with Create React App
+# 📊 Daily Tracker
+
+A beautiful, minimalistic daily habit tracker with Apple Activity-inspired design. Track your habits, add notes, and visualize your progress with gorgeous activity rings.
+
+## ✨ Features
+
+- 🌅 **Today View**: Real-time clock, progress ring, and quick task completion
+- 📅 **Month View**: Color-coded calendar with completion indicators
+- 📈 **Year View**: Mini calendars showing annual progress patterns
+- 🌙 **Dark/Light Mode**: Sleek dark mode (default) with light mode option
+- 📝 **Notes System**: Add daily comments and reflections
+- 🛡️ **Data Protection**: Comprehensive backup & recovery system
+- 📱 **Responsive Design**: Works perfectly on all devices
+- 🎨 **Visual Progress**: Activity rings and color-coded status indicators
+
+## 🚀 Quick Deploy
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Theprd1/daily-tracker)
+
+## 🏃‍♂️ Local Development
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
