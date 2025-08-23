@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Check, X, MessageCircle, Calendar, Plus, ChevronLeft, ChevronRight, Sun, Moon, Edit3, BarChart3, Settings, Trash2, Palette } from 'lucide-react';
+import { Check, X, MessageCircle, Calendar, Plus, ChevronLeft, ChevronRight, Sun, Moon, Edit3, BarChart3, Settings, Trash2, Palette, User, LogOut, Cloud, CloudOff } from 'lucide-react';
+import { useSupabase } from './hooks/useSupabase';
+import { syncAllData, loadUserData } from './services/supabaseSync';
+import AuthModal from './components/AuthModal';
 
 const TrackingDashboard = () => {
   const [viewMode, setViewMode] = useState('today'); // 'today', 'month', 'year', 'analytics'
@@ -38,6 +41,15 @@ const TrackingDashboard = () => {
     chartType: 'progress' // 'progress', 'bars', 'lines'
   });
   const [editingTaskInSettings, setEditingTaskInSettings] = useState(null);
+  
+  // Authentication and cloud sync states
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('idle'); // 'idle', 'syncing', 'error', 'success'
+  const [lastSyncTime, setLastSyncTime] = useState(null);
+  
+  // Supabase hook
+  const { user, loading: authLoading, isOnline, configured, signOut } = useSupabase();
+  
   const [currentTimeState, setCurrentTimeState] = useState(() => {
     return new Date().toLocaleTimeString('en-US', { 
       hour: '2-digit', 
@@ -242,6 +254,38 @@ const TrackingDashboard = () => {
     
     return () => clearInterval(timer);
   }, []);
+
+  // Authentication and cloud sync effects
+  useEffect(() => {
+    if (user && configured && isInitialized) {
+      // Load data from cloud when user signs in
+      loadFromCloud();
+    }
+  }, [user, configured, isInitialized]);
+
+  // Auto-sync to cloud when data changes (debounced)
+  useEffect(() => {
+    if (!user || !configured || !isInitialized) return;
+
+    const syncTimeout = setTimeout(() => {
+      syncToCloud();
+    }, 2000); // Debounce sync by 2 seconds
+
+    return () => clearTimeout(syncTimeout);
+  }, [data, defaultTasks, customTasks, layoutSettings, analyticsSettings, darkMode, comments, todayNotes, user, configured, isInitialized]);
+
+  // Periodic sync every 5 minutes
+  useEffect(() => {
+    if (!user || !configured) return;
+
+    const syncInterval = setInterval(() => {
+      if (isOnline) {
+        syncToCloud();
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(syncInterval);
+  }, [user, configured, isOnline]);
 
   // Auto-backup to multiple localStorage keys for redundancy
   useEffect(() => {
@@ -762,6 +806,102 @@ const TrackingDashboard = () => {
       });
       return newData;
     });
+  };
+
+  // Cloud sync functions
+  const syncToCloud = async () => {
+    if (!user || !configured || !isOnline) return false;
+    
+    setSyncStatus('syncing');
+    
+    try {
+      const localData = {
+        defaultTasks,
+        customTasks,
+        data,
+        layoutSettings,
+        analyticsSettings,
+        darkMode,
+        comments,
+        todayNotes
+      };
+      
+      const success = await syncAllData(localData, user.id);
+      
+      if (success) {
+        setSyncStatus('success');
+        setLastSyncTime(new Date());
+        setTimeout(() => setSyncStatus('idle'), 3000);
+        return true;
+      } else {
+        setSyncStatus('error');
+        setTimeout(() => setSyncStatus('idle'), 5000);
+        return false;
+      }
+    } catch (error) {
+      console.error('Sync error:', error);
+      setSyncStatus('error');
+      setTimeout(() => setSyncStatus('idle'), 5000);
+      return false;
+    }
+  };
+
+  const loadFromCloud = async () => {
+    if (!user || !configured) return false;
+    
+    try {
+      const cloudData = await loadUserData(user.id);
+      
+      if (cloudData) {
+        // Update state with cloud data
+        if (cloudData.tasks) {
+          const defaultTasksFromCloud = {};
+          const customTasksFromCloud = {};
+          
+          Object.entries(cloudData.tasks).forEach(([key, task]) => {
+            if (task.isDefault) {
+              defaultTasksFromCloud[key] = task;
+            } else {
+              customTasksFromCloud[key] = task;
+            }
+          });
+          
+          setDefaultTasks(defaultTasksFromCloud);
+          setCustomTasks(customTasksFromCloud);
+        }
+        
+        if (cloudData.taskData) {
+          setData(cloudData.taskData);
+        }
+        
+        if (cloudData.settings) {
+          if (cloudData.settings.layoutSettings) {
+            setLayoutSettings(cloudData.settings.layoutSettings);
+          }
+          if (cloudData.settings.analyticsSettings) {
+            setAnalyticsSettings(cloudData.settings.analyticsSettings);
+          }
+          if (cloudData.settings.darkMode !== undefined) {
+            setDarkMode(cloudData.settings.darkMode);
+          }
+        }
+        
+        if (cloudData.comments) {
+          setComments(cloudData.comments);
+        }
+        
+        if (cloudData.notes) {
+          setTodayNotes(cloudData.notes);
+        }
+        
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error loading from cloud:', error);
+      return false;
+    }
   };
 
   const getCompletedTasksForDay = (day, month = currentMonth, year = currentYear) => {
@@ -1743,6 +1883,64 @@ const TrackingDashboard = () => {
               >
                 🛡️
               </button>
+              
+              {/* Authentication UI */}
+              <>
+                {/* Sync Status Indicator */}
+                {configured && user && (
+                    <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                      syncStatus === 'syncing' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' :
+                      syncStatus === 'success' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' :
+                      syncStatus === 'error' ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' :
+                      isOnline ? 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' :
+                      'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
+                    }`}>
+                      {syncStatus === 'syncing' ? <Cloud className="w-3 h-3 animate-spin" /> :
+                       syncStatus === 'success' ? <Cloud className="w-3 h-3" /> :
+                       syncStatus === 'error' ? <CloudOff className="w-3 h-3" /> :
+                       isOnline ? <Cloud className="w-3 h-3" /> :
+                       <CloudOff className="w-3 h-3" />}
+                      {syncStatus === 'syncing' ? 'Syncing...' :
+                       syncStatus === 'success' ? 'Synced' :
+                       syncStatus === 'error' ? 'Sync Error' :
+                       isOnline ? 'Online' : 'Offline'}
+                    </div>
+                  )}
+                  
+                  {/* User Menu */}
+                  {user ? (
+                    <div className="flex items-center gap-2">
+                      <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm ${
+                        darkMode ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700'
+                      }`}>
+                        <User className="w-4 h-4" />
+                        <span className="hidden sm:inline">{user.email?.split('@')[0] || 'User'}</span>
+                      </div>
+                      <button
+                        onClick={() => signOut()}
+                        className={`p-2 rounded-full transition-colors ${
+                          darkMode 
+                            ? 'hover:bg-gray-800 text-gray-400 hover:text-red-400' 
+                            : 'hover:bg-gray-100 text-gray-600 hover:text-red-600'
+                        }`}
+                        title="Sign Out"
+                      >
+                        <LogOut className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowAuthModal(true)}
+                      className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                        darkMode
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
+                    >
+                      Sign In
+                    </button>
+                  )}
+              </>
               
               {/* Dark Mode Toggle */}
               <button
@@ -2996,6 +3194,13 @@ const TrackingDashboard = () => {
             </div>
           </div>
         )}
+
+        {/* Authentication Modal */}
+        <AuthModal 
+          isOpen={showAuthModal} 
+          onClose={() => setShowAuthModal(false)} 
+          darkMode={darkMode} 
+        />
     </div>
   );
 };
